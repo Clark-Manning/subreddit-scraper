@@ -1,16 +1,25 @@
 import requests
 import re
 from bs4 import BeautifulSoup
+import argparse
+import os
+from urllib.parse import urljoin, urlparse
+from tqdm import tqdm
 
 headers = {'User-Agent':'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36'}
 reddit_url = "https://www.reddit.com"
 
-# TODO: fetch images from all_post_data and store in folder
+# TODO: fetch (download) images from all_post_data and store in folder
 # TODO: fetch videos from all_post_data and store in folder
-# TODO: parse comments
-# TODO: make paginated requests for posts and comments 
-# TODO: handle reposts
-# TODO: investigate video content; unexpected value appearing in videoUrl
+# TODO: parse comments; put each comment into a list; write entire list to csv
+
+# TODO: OPTIONAL - investigate why certain posts are being skipped
+# TODO: OPTIONAL - handle reposts
+# TODO: POTENTIAL - threading concurrent requests
+
+parser = argparse.ArgumentParser(description="Specify the subreddit you want to scrape")
+parser.add_argument("subreddit", nargs="?", default="/r/aww/", type=str, help="subreddit to scrape")
+args = parser.parse_args()
 
 def get_soup(url):
     response = requests.get(url, headers=headers)
@@ -18,10 +27,10 @@ def get_soup(url):
 
 def find_comments(post_soup):
     for item in post_soup.select("._1qeIAgB0cPwnLhDF9XSiJM"):
-        print(item.get_text())
+        comment = item.get_text()
 
-def get_all_post_data(soup):
-    all_post_data = []
+def get_post_data(soup):
+    all_page_post_data = []
     for item in soup.select(".Post"):
         try:
             videos = item.find_all("source")
@@ -35,6 +44,7 @@ def get_all_post_data(soup):
 
             post_data = {"votes": None, "title": None, "commentCount": None, "url": None, "imageUrl": None, "videoUrl": None}
             
+            #TODO: fix vote parsing logic
             post_votes = item.select("._1rZYMD_4xY3gRcSS3p8ODO")[0].get_text()
             post_data["votes"] = post_votes
 
@@ -61,11 +71,53 @@ def get_all_post_data(soup):
             
             find_comments(post_soup)
 
-            all_post_data.append(post_data)
+            all_page_post_data.append(post_data)
 
         except Exception as e:
             print(e)
+    return all_page_post_data
+
+def get_all_post_data(current_url):
+    all_post_data = []
+    # use get_post_data until have specified amount of data or there is no next link
+    while len(all_post_data) < 10 and current_url:
+        soup = get_soup(current_url)
+        all_post_data.extend(get_post_data(soup))
+        next_link_list = soup.find_all("link", rel="next")
+        if len(next_link_list) > 0:
+            current_url = next_link_list[0]["href"]
+        else:
+            current_url = None
+        print(current_url)
+        print(len(all_post_data))
     return all_post_data
+
+def get_all_img_urls(all_post_data):
+    # return a list of images to image_url and list of videos to video_url
+    # TODO: figure out why it is returning a None value and how to handle
+    image_url = []
+    for post_data in all_post_data:
+        image_url.append(post_data.get("imageUrl"))
+    print(image_url)
+    return image_url
+
+
+def download_all_imgs(image_url, pathname):
+    # downloads the img file and puts it in a folder
+    if not os.path.isdir(pathname):
+        os.makedirs(pathname)
+    
+    response = requests.get(image_url, stream=True)
+
+    file_size = int(response.headers.get("Content-Length", 0))
+    
+    filename = os.path.join(pathname, url.split("/")[-1])
+
+    progress = tqdm(response.iter_content(1024), f"Downloading {filename}", total=file_size, unit="B", unit_scale=True, unit_divisor=1024)
+    with open(filename, "wb") as f:
+        for data in progress.iterable:
+            f.write(data)
+            progress.update(len(data))
 
 def write_post_data_to_csv(all_post_data):
     _file = open("PostData.csv", "w")
@@ -75,17 +127,14 @@ def write_post_data_to_csv(all_post_data):
         post_values = []
         # add "" to escape existing commas for csv interpretation
         for value in post_data.values():
-            post_values.append("\"" + value + "\"")
+            post_values.append("\"" + (value or "") + "\"")
         _file.write(",".join(post_values) + "\n")
     _file.close()
 
 if __name__ == "__main__":
-    # TODO: accept subreddit as a command line argument
-    subbreddit = "/r/aww/"
-    subreddit_url = reddit_url + subbreddit
-    soup = get_soup(subreddit_url)
-    all_post_data = get_all_post_data(soup)
+    # command line argument accepts subreddit command in form "/r/subreddit/"
+    subreddit = args.subreddit
+    subreddit_url = reddit_url + subreddit
+    all_post_data = get_all_post_data(subreddit_url)
     write_post_data_to_csv(all_post_data)
-
-
-    print(all_post_data)
+    image_url = get_all_img_urls(all_post_data)

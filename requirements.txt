@@ -2,3 +2,6 @@ requests
 beautifulsoup4
 html5lib
 lxml
+argparse
+tqdm
+urllib3
