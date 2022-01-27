@@ -2,7 +2,7 @@ import requests
 import re
 from bs4 import BeautifulSoup
 import argparse
-import os
+import os, glob
 from urllib.parse import urljoin, urlparse
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,7 +12,6 @@ headers = {'User-Agent':'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) A
 reddit_url = "https://www.reddit.com"
 
 # TODO: parse comments; put each comment into a list; write entire list to csv
-# TODO: delete all files in subreddit-images and subreddit-videos before adding new images
 
 def get_soup(url):
     response = requests.get(url, headers=headers)
@@ -115,6 +114,10 @@ def download_all_imgs(urls, pathname):
     # downloads the img file and puts it in a folder
     if not os.path.isdir(pathname):
         os.makedirs(pathname)
+    
+
+    for file in os.scandir(pathname):
+        os.remove(file.path)
     
     with ThreadPoolExecutor(max_workers=10) as executor:
         for url in urls:
